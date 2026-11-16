@@ -1,0 +1,65 @@
+[
+ {
+  "name": "Tip 1979",
+  "station": "TIP",
+  "lon": 132.84,
+  "lat": 23.13,
+  "filename": "tip.json"
+ },
+ {
+  "name": "Megi 2010",
+  "station": "MEGI",
+  "lon": 123.27,
+  "lat": 17.01,
+  "filename": "megi.json"
+ },
+ {
+  "name": "Meranti 2016",
+  "station": "MERANTI",
+  "lon": 128.71,
+  "lat": 17.41,
+  "filename": "meranti.json"
+ },
+ {
+  "name": "Haiyan 2013",
+  "station": "HAIYAN",
+  "lon": 120.94,
+  "lat": 12.22,
+  "filename": "haiyan.json"
+ },
+ {
+  "name": "Soudelor 2015",
+  "station": "SOUDELOR",
+  "lon": 128.88,
+  "lat": 19.79,
+  "filename": "soudelor.json"
+ },
+ {
+  "name": "Nepartak 2016",
+  "station": "NEPARTAK",
+  "lon": 127.35,
+  "lat": 20.33,
+  "filename": "nepartak.json"
+ },
+ {
+  "name": "Mangkhut 2018",
+  "station": "MANGKHUT",
+  "lon": 124.05,
+  "lat": 17.74,
+  "filename": "mangkhut.json"
+ },
+ {
+  "name": "Morakot 2009",
+  "station": "MORAKOT",
+  "lon": 124.09,
+  "lat": 22.58,
+  "filename": "morakot.json"
+ },
+ {
+  "name": "CHAMPI 2026 (CWA data)",
+  "station": "CHAMPI",
+  "lon": 127.4,
+  "lat": 19.5,
+  "filename": "champi.json"
+ }
+]

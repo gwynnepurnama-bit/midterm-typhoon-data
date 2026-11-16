@@ -1,0 +1,17 @@
+html,body{margin:0;height:100%;font-family:system-ui,-apple-system,sans-serif}
+#mainChart{position:absolute;left:0;top:0;width:60%;height:100%}
+#rightPanel{position:absolute;left:60%;top:0;width:40%;height:100%;overflow-y:auto;box-sizing:border-box;padding:8px}
+#rightUpChart{width:100%;height:380px;margin-bottom:30px}
+#rightDownChart{width:100%;height:400px}
+#titleBox{position:absolute;top:10px;left:10px;z-index:5;background:rgba(11,20,36,.85);color:#fff;padding:8px 14px;border-radius:10px;max-width:340px}
+#titleBox h1{margin:0;font-size:22px;font-family:'Times New Roman',Times,serif}
+#titleBox p{margin:4px 0 0;font-size:12px;line-height:1.35}
+#credit{position:absolute;left:8px;bottom:22px;z-index:5;background:rgba(255,255,255,.88);font-size:11px;padding:3px 8px;border-radius:6px;max-width:58%}
+#credit a{color:#1d6fd8}
+.liveTag{background:#e11;color:#fff;font:bold 11px sans-serif;padding:1px 6px;border-radius:8px;text-align:center}
+.liveEye{font-size:34px;text-align:center;animation:liveSpin 1.6s linear infinite;filter:drop-shadow(0 0 8px #fff)}
+@keyframes liveSpin{to{transform:rotate(-360deg)}}
+@media(max-width:800px){#mainChart{width:100%;height:50%}#rightPanel{left:0;top:50%;width:100%;height:50%}}
+#insights{position:absolute;right:600px;top:10px;z-index:5;background:rgba(10,20,36,.85);color:#fff;padding:8px 12px;border-radius:10px;max-width:360px;font-size:12px;line-height:1.35}
+#insights ul{margin:4px 0 0;padding-left:16px}
+#insights li{margin-bottom:4px}

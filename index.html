@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Typhoon Data</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.10.0/mapbox-gl.js"></script>
+    <script src="./config.js"></script>
+    <link type="text/css" rel="stylesheet" href="./css/style.css">
+</head>
+
+<body id="main">
+    <!-- Map and chart containers -->
+    <div id='mainChart'></div>
+    <div id="rightPanel">
+        <div id='rightUpChart'></div>
+        <div id='rightDownChart'></div>
+    </div>
+
+    <!-- Title (on top of the map) -->
+    <div id="titleBox">
+        <h1>Typhoon Data</h1>
+        <p>Click a marker to see a typhoon's path, wind and pressure.</p>
+        <p id="liveStatus"></p>
+    </div>
+
+    <!-- Key insights (written from the data in this dashboard) -->
+    <div id="insights">
+        <b>Key insights</b>
+        <ul>
+            <li>Lower pressure means stronger wind: every storm below 910 hPa reached at least 105 knots (Tip 1979: 870 hPa and 165 knots).</li>
+            <li>Wind is not the whole story: Morakot (2009) had the weakest wind here (65 knots) but caused deadly floods in Taiwan with record rain.</li>
+            <li>Typhoons build up over days: Champi (2026) grew from 23 to 117 knots in about a week.</li>
+        </ul>
+    </div>
+
+    <!-- Data credit -->
+    <div id="credit">
+        Data: <a href="https://opendata.cwa.gov.tw/" target="_blank">Central Weather Administration (CWA), Taiwan, Open Data</a> (live typhoons and Champi 2026).
+        Other storms: sample data based on approximate peak values from Japan Meteorological Agency (JMA) records.
+    </div>
+
+    <!-- Station context menu -->
+    <div id="contextMenu" style="display:none; position:absolute; background-color:white; border:1px solid #ccc; padding:10px; z-index:1000;">
+        <p id="siteName"></p>
+        <p id="siteId"></p>
+        <p>
+            <span id="siteCoords"></span>
+            <button id="copyCoordsBtn">Copy</button>
+        </p>
+    </div>
+
+
+    <script type="text/javascript">
+
+        // Initialize the two ECharts instances.
+        var lineChart = echarts.init(document.getElementById('rightUpChart'));
+        var comparisonChart = echarts.init(document.getElementById('rightDownChart'));
+
+        // NEW (written with AI assistance): the peak wind of every typhoon, for the bar chart.
+        var peakList = [];
+
+        // Read every typhoon file once, find its highest wind, and keep it in peakList.
+        function loadPeaks(allData, whenDone) {
+            var finished = 0;
+
+            // called each time one file has been handled
+            var oneFinished = function () {
+                finished++;
+                if (finished === allData.length) {
+                    // all files are done: put the typhoons in order, oldest first
+                    peakList.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+                    whenDone();
+                }
+            };
+
+            for (const station of allData) {
+                $.getJSON("data/" + station.filename, function (records) {
+                    var peak = 0;
+                    for (var index = 0; index < records.length; index++) {
+                        if (records[index]["WIND"] > peak) {
+                            peak = records[index]["WIND"];
+                        }
+                    }
+                    peakList.push({
+                        name: records[0]["NAME"].split(' (')[0],
+                        date: records[0]["DATE"],
+                        wind: peak
+                    });
+                    oneFinished();
+                }).fail(oneFinished);
+            }
+        }
+
+        // Step 1: Calculate the average station coordinates for the map center.
+        function getMapCenter(allData){
+            let totalLongitude = 0;
+            let totalLatitude = 0;
+            const stationCount = allData.length;
+
+            for (let index=0; index < stationCount; index++) {
+                totalLongitude += allData[index]['lon'];
+                totalLatitude += allData[index]['lat'];
+            }
+            return [totalLongitude / stationCount, totalLatitude / stationCount];
+        }
+
+        // Step 2: Create the map and add station markers and interactions.
+        function createMap(allData) {
+
+            mapboxgl.accessToken = 'pk.eyJ1IjoiYmlhYm9ibyIsImEiOiJjamVvejdlNXQxZnBuMndtdWhiZHRuaTNpIn0.PIS9wtUxm_rz_IzF2WFD1g';
+            const map = new mapboxgl.Map({
+                container: 'mainChart',
+                style: 'mapbox://styles/mapbox/satellite-streets-v12',
+                center: getMapCenter(allData),
+                zoom: 4
+            });
+
+            map.on('style.load', () => {
+                add3DBuildings(map);
+                addRainEffectOnMap(map);
+                add3DTerrain(map);
+            });
+
+            // Get the context-menu elements once for reuse.
+            const contextMenu = document.getElementById('contextMenu');
+            const stationNameElement = document.getElementById('siteName');
+            const stationIdElement = document.getElementById('siteId');
+            const stationCoordinatesElement = document.getElementById('siteCoords');
+            const copyCoordinatesButton = document.getElementById('copyCoordsBtn');
+
+            // Close the menu when the user clicks elsewhere.
+            document.body.addEventListener('click', () => {
+                contextMenu.style.display = 'none';
+            });
+
+            // Create one marker for each station.
+            for (const station of allData) {
+                const marker = new mapboxgl.Marker({ color: '#A41623' })
+                    .setLngLat([station.lon, station.lat])
+                    .addTo(map);
+
+                // Show station details on right-click.
+                marker.getElement().addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    stationNameElement.textContent = "Typhoon: " + station.name;
+                    stationIdElement.textContent = "No.: " + station.station;
+                    stationCoordinatesElement.textContent = "Coord: " + station.lon.toFixed(2) + ", " + station.lat.toFixed(2);
+                    copyCoordinatesButton.onclick = () =>{
+                        navigator.clipboard.writeText(station.lon + ',' + station.lat);
+                        alert('Coordinate copied');
+                    };
+                    // (fix: the menu is now placed at the mouse position)
+                    contextMenu.style.left = e.pageX + 'px';
+                    contextMenu.style.top = e.pageY + 'px';
+                    contextMenu.style.display = 'block';
+                });
+
+                // Load this station's data and update both charts.
+                marker.getElement().addEventListener('click', function () {
+                    $.getJSON("data/" + station.filename, function (data) {
+                        clearLiveExtras(map);   // NEW: remove the live forecast layers (config.js)
+                        createTemperatureChart(data, lineChart);
+                        createWeatherComparisonChart(data, comparisonChart);
+                        drawTrack(map, data);   // NEW: draw the typhoon's path on the map
+                    });
+                });
+            }
+
+            // NEW: add the LIVE typhoons (this function is in config.js).
+            loadLive(map);
+        }
+
+        // NEW: draw the typhoon's path as a line on the map.
+        // https://docs.mapbox.com/mapbox-gl-js/example/geojson-line/
+        function drawTrack(map, weatherRecords, fly) {
+            var coordinates = [];
+            for (var index = 0; index < weatherRecords.length; index++) {
+                coordinates.push([weatherRecords[index]["LON"], weatherRecords[index]["LAT"]]);
+            }
+            var track = {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: coordinates }
+            };
+            if (map.getSource('track')) {
+                map.getSource('track').setData(track);
+            } else {
+                map.addSource('track', { type: 'geojson', data: track });
+                map.addLayer({
+                    id: 'track-line',
+                    type: 'line',
+                    source: 'track',
+                    paint: { 'line-color': '#ff7a50', 'line-width': 4 }
+                });
+            }
+            // (fly is false when the live feature refreshes, so the camera does not jump around)
+            if (fly !== false) {
+                map.flyTo({ center: coordinates[Math.floor(coordinates.length * 0.6)], zoom: 5, pitch: 55 });
+            }
+        }
+
+        // Step 3: Build the typhoon's line chart: wind and pressure together (was: temperature chart).
+        function createTemperatureChart(weatherRecords, chart) {
+            // Prepare the date, wind and pressure series.
+            var dateList = [];
+            var windList = [];
+            var pressureList = [];
+
+            for (var index = 0; index < weatherRecords.length; index++) {
+                var record = weatherRecords[index];
+                dateList.push(record["DATE"]);
+                windList.push(record["WIND"]);
+                pressureList.push(record["PRES"]);
+            }
+
+            // Use the first record's typhoon name in the chart title.
+            let stationName = "";
+            if (weatherRecords.length > 0) {
+                stationName = weatherRecords[0]['NAME'];
+            }
+
+            var option = {
+                title: {
+                    text: stationName + " Wind & Pressure",
+                    subtext: "Wind (left axis) and pressure (right axis) of the selected typhoon.\nWhen pressure drops, wind rises.",
+                    textStyle: {
+                        color: '#A41623',
+                        fontSize: 15
+                    },
+                    subtextStyle: {
+                        fontSize: 11
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        animation: false
+                    }
+                },
+                legend: {
+                    data: ['Wind', 'Pressure'],
+                    top: 62
+                },
+                grid: {
+                    left: 60,
+                    right: 65,
+                    top: 100
+                },
+                xAxis: {
+                    type: 'category',
+                    data: dateList,
+                    axisLabel: { hideOverlap: true, formatter: function (value) { return value.slice(5); } }
+                },
+                // Wind (about 30-165 knots) and pressure (about 870-1010 hPa) have very different
+                // sizes, so the chart gets two y-axes: wind on the left, pressure on the right.
+                yAxis: [
+                    {
+                        name: 'Wind(knots)',
+                        type: 'value'
+                    },
+                    {
+                        name: 'Pressure(hPa)',
+                        type: 'value',
+                        min: 860,
+                        max: 1010,
+                        splitLine: { show: false }
+                    }
+                ],
+                series: [
+                    {
+                        name: 'Wind',
+                        data: windList,
+                        type: "line",
+                        lineStyle: {
+                            color: '#f73528'
+                        },
+                        itemStyle: {
+                            color: '#f73528'
+                        },
+                        markPoint: {
+                            data: [
+                                { type: 'max', name: 'Max' },
+                            ]
+                        }
+                    },
+                    {
+                        name: 'Pressure',
+                        data: pressureList,
+                        type: "line",
+                        yAxisIndex: 1,      // use the second y-axis (the one on the right)
+                        lineStyle: {
+                            color: '#111abd'
+                        },
+                        itemStyle: {
+                            color: '#111abd'
+                        },
+                        markPoint: {
+                            itemStyle: {
+                                color: '#111abd'
+                            },
+                            data: [
+                                { type: 'min', name: 'Min' },
+                            ]
+                        }
+                    }
+                ]
+            };
+
+            // Render the chart with the prepared options.
+            chart.setOption(option, true);
+        }
+
+        // Step 4: Bar chart: the strength (peak wind) of every typhoon, from the oldest to the newest year.
+        function createWeatherComparisonChart(weatherRecords, chart) {
+            // The typhoon that is selected on the map: its bar is drawn in red.
+            var selectedName = "";
+            if (weatherRecords.length > 0) {
+                selectedName = weatherRecords[0]['NAME'].split(' (')[0];
+            }
+
+            // Prepare the typhoon names and their peak wind (from peakList).
+            var nameList = [];
+            var peakWindList = [];
+            for (var index = 0; index < peakList.length; index++) {
+                nameList.push(peakList[index].name);
+                peakWindList.push({
+                    value: peakList[index].wind,
+                    itemStyle: {
+                        color: peakList[index].name === selectedName ? '#f73528' : '#1d6fd8'
+                    }
+                });
+            }
+
+            const option = {
+                title: {
+                    text: 'Typhoon Strength by Year (peak wind)',
+                    subtext: 'Strongest wind of each typhoon, oldest to newest.\nThe selected typhoon is red.',
+                    left: 'center',
+                    textStyle: {
+                        fontSize: 15
+                    },
+                    subtextStyle: {
+                        fontSize: 11
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        animation: false
+                    }
+                },
+                grid: {
+                    left: 60,
+                    right: 50,
+                    top: 90,
+                    bottom: 80
+                },
+                xAxis: {
+                    type: 'category',
+                    data: nameList,
+                    axisLabel: { interval: 0, rotate: 30 }
+                },
+                yAxis: {
+                    name: 'Peak wind(knots)',
+                    type: 'value'
+                },
+                series: [
+                    {
+                        name: 'Peak wind',
+                        type: 'bar',
+                        data: peakWindList,
+                        label: { show: true, position: 'top' },
+                        // a dashed line at 64 knots, where a storm becomes a typhoon
+                        markLine: {
+                            symbol: 'none',
+                            silent: true,
+                            data: [{ yAxis: 64, name: 'Typhoon' }],
+                            lineStyle: { color: '#e4572e', type: 'dashed' },
+                            label: { formatter: 'Typhoon (64 knots)', position: 'insideEndTop' }
+                        }
+                    }
+                ]
+            };
+            // Render the bar chart.
+            chart.setOption(option, true);
+        }
+
+// Step 5: Add 3D buildings beneath the map labels.
+        // https://docs.mapbox.com/mapbox-gl-js/example/3d-buildings/
+        function add3DBuildings(map) {
+            const layers = map.getStyle().layers;
+            const labelLayerId = layers.find(
+                (layer) => layer.type === 'symbol' && layer.layout['text-field']
+            ).id;
+
+            // The 'building' layer in the Mapbox Streets
+            // vector tileset contains building height data
+            // from OpenStreetMap.
+            map.addLayer(
+                {
+                    'id': 'add-3d-buildings',
+                    'source': 'composite',
+                    'source-layer': 'building',
+                    'filter': ['==', 'extrude', 'true'],
+                    'type': 'fill-extrusion',
+                    'minzoom': 15,
+                    'paint': {
+                        'fill-extrusion-color': '#aaa',
+
+                        // Use an 'interpolate' expression to
+                        // add a smooth transition effect to
+                        // the buildings as the user zooms in.
+                        'fill-extrusion-height': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            15,
+                            0,
+                            15.05,
+                            ['get', 'height']
+                        ],
+                        'fill-extrusion-base': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            15,
+                            0,
+                            15.05,
+                            ['get', 'min_height']
+                        ],
+                        'fill-extrusion-opacity': 0.6
+                    }
+                },
+                labelLayerId
+            );
+        }
+
+
+        // Step 6: Apply dusk lighting and a zoom-based rain effect (was: snow).
+        // https://docs.mapbox.com/mapbox-gl-js/example/rain/
+        function addRainEffectOnMap(map) {
+            map.setConfigProperty('basemap', 'lightPreset', 'dusk');
+
+            // use an expression to transition some properties between zoom levels 3 and 5
+            // (changed from 11-13 so the rain is visible when the whole region is shown)
+            const zoomBasedReveal = (value) => {
+                return [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    3,
+                    0.0,
+                    5,
+                    value
+                ];
+            };
+
+            map.setRain({
+                density: zoomBasedReveal(0.6),
+                intensity: 0.9,
+                'center-thinning': 0.57,
+                direction: [0, 80],
+                opacity: 0.7,
+                color: `#a8adbc`,
+                'droplet-size': [2.6, 18.2],
+                'distortion-strength': 0.7,
+                vignette: zoomBasedReveal(0.5),
+                'vignette-color': `#464646`
+            });
+        }
+
+        // Step 7: Add elevation data and enable 3D terrain.
+        // https://docs.mapbox.com/mapbox-gl-js/example/add-terrain/
+        function add3DTerrain(map) {
+            map.addSource('mapbox-dem', {
+                'type': 'raster-dem',
+                'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                'tileSize': 512,
+                'maxzoom': 14
+            });
+            // add the DEM source as a terrain layer with exaggerated height
+            map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+        }
+
+        // Step 8: Load typhoon coordinates, then initialize the map and empty charts.
+        $.getJSON("coordinates.json", function (allData) {
+            console.log("We have " + allData.length + " typhoons.");
+
+            // NEW: read all the typhoon files first (for the bar chart), then build the page.
+            loadPeaks(allData, function () {
+                createMap(allData);
+                createTemperatureChart([], lineChart);
+                createWeatherComparisonChart([], comparisonChart);
+            });
+        });
+    </script>
+</body>
+
+</html>
